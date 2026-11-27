@@ -1,0 +1,332 @@
+{
+  "entities": {
+    "TestConnection": {
+      "title": "TestConnection",
+      "description": "Documento liviano para verificar la conectividad inicial con Firestore.",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "maxLength": 32 }
+      },
+      "required": ["status"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Perfil operativo y rol RBAC de un usuario autenticado del ERP.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "username": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "nombreCompleto": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "rol": { "type": "string", "enum": ["ADMIN", "VENDEDOR"] },
+        "empleadoId": { "type": "number" },
+        "activo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "username", "nombreCompleto", "rol", "activo", "createdAt", "updatedAt"]
+    },
+    "UserPrivatePii": {
+      "title": "UserPrivatePii",
+      "description": "Información de contacto privada del usuario (aislada por privacidad).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "CategoryDoc": {
+      "title": "CategoryDoc",
+      "description": "Categoría comercial de productos frescos.",
+      "type": "object",
+      "properties": {
+        "numId": { "type": "number" },
+        "codigo": { "type": "string", "minLength": 2, "maxLength": 32 },
+        "nombre": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "descripcion": { "type": "string", "maxLength": 300 },
+        "estado": { "type": "string", "enum": ["Activo", "Inactivo"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numId", "codigo", "nombre", "descripcion", "estado", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "ProductDoc": {
+      "title": "ProductDoc",
+      "description": "Producto agrícola fresco comercializado por kilogramo.",
+      "type": "object",
+      "properties": {
+        "numId": { "type": "number" },
+        "codigo": { "type": "string", "minLength": 2, "maxLength": 32 },
+        "nombre": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "descripcion": { "type": "string", "maxLength": 400 },
+        "categoriaId": { "type": "number" },
+        "categoriaNombre": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "precioKg": { "type": "number" },
+        "stockKg": { "type": "number" },
+        "unidad": { "type": "string", "minLength": 1, "maxLength": 16 },
+        "origen": { "type": "string", "enum": ["Costa", "Sierra", "Selva"] },
+        "estado": { "type": "string", "enum": ["Activo", "Inactivo"] },
+        "imagenUrl": { "type": "string", "maxLength": 500 },
+        "fechaRegistro": { "type": "string", "maxLength": 20 },
+        "ultimoMovimiento": { "type": "string", "maxLength": 32 },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numId", "codigo", "nombre", "descripcion", "categoriaId", "categoriaNombre", "precioKg", "stockKg", "unidad", "origen", "estado", "imagenUrl", "fechaRegistro", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "InventoryMovementDoc": {
+      "title": "InventoryMovementDoc",
+      "description": "Registro inmutable de entradas, salidas y ajustes de inventario.",
+      "type": "object",
+      "properties": {
+        "numId": { "type": "number" },
+        "productoId": { "type": "number" },
+        "productoCodigo": { "type": "string", "minLength": 2, "maxLength": 32 },
+        "productoNombre": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "tipo": { "type": "string", "enum": ["ENTRADA", "SALIDA", "AJUSTE"] },
+        "cantidadKg": { "type": "number" },
+        "stockAnterior": { "type": "number" },
+        "stockNuevo": { "type": "number" },
+        "motivo": { "type": "string", "minLength": 2, "maxLength": 240 },
+        "referencia": { "type": "string", "maxLength": 80 },
+        "usuarioUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "usuarioNombre": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "fecha": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numId", "productoId", "productoCodigo", "productoNombre", "tipo", "cantidadKg", "stockAnterior", "stockNuevo", "motivo", "referencia", "usuarioUid", "usuarioNombre", "fecha", "createdAt"]
+    },
+    "ClientDoc": {
+      "title": "ClientDoc",
+      "description": "Cliente comercial B2B en Lima Metropolitana.",
+      "type": "object",
+      "properties": {
+        "numId": { "type": "number" },
+        "ruc": { "type": "string", "minLength": 8, "maxLength": 15 },
+        "razonSocial": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "nombreComercial": { "type": "string", "maxLength": 160 },
+        "tipo": { "type": "string", "enum": ["Bodegas", "Restaurantes", "Hoteles", "Minimarkets"] },
+        "direccion": { "type": "string", "minLength": 3, "maxLength": 240 },
+        "telefono": { "type": "string", "maxLength": 40 },
+        "correo": { "type": "string", "maxLength": 160 },
+        "estado": { "type": "string", "enum": ["Activo", "Inactivo"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numId", "ruc", "razonSocial", "nombreComercial", "tipo", "direccion", "telefono", "correo", "estado", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "EmployeeDoc": {
+      "title": "EmployeeDoc",
+      "description": "Colaborador de Andes Fresh S.A.C.",
+      "type": "object",
+      "properties": {
+        "numId": { "type": "number" },
+        "dni": { "type": "string", "minLength": 8, "maxLength": 12 },
+        "nombres": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "apellidos": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "cargo": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "telefono": { "type": "string", "maxLength": 40 },
+        "correo": { "type": "string", "maxLength": 160 },
+        "usuario": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "rol": { "type": "string", "enum": ["ADMIN", "VENDEDOR"] },
+        "estado": { "type": "string", "enum": ["Activo", "Inactivo"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numId", "dni", "nombres", "apellidos", "cargo", "telefono", "correo", "usuario", "rol", "estado", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "OrderDoc": {
+      "title": "OrderDoc",
+      "description": "Cabecera de pedido comercial con totales validados.",
+      "type": "object",
+      "properties": {
+        "numId": { "type": "number" },
+        "numeroPedido": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "clienteId": { "type": "number" },
+        "clienteRuc": { "type": "string", "minLength": 8, "maxLength": 15 },
+        "clienteNombre": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "clienteTipo": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "vendedorId": { "type": "number" },
+        "vendedorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "vendedorNombre": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "fecha": { "type": "string", "maxLength": 20 },
+        "subtotal": { "type": "number" },
+        "descuento": { "type": "number" },
+        "total": { "type": "number" },
+        "estado": { "type": "string", "enum": ["Pendiente", "Confirmado", "En preparación", "Despachado", "Entregado", "Cancelado"] },
+        "observacion": { "type": "string", "maxLength": 500 },
+        "itemsCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numId", "numeroPedido", "clienteId", "clienteRuc", "clienteNombre", "clienteTipo", "vendedorId", "vendedorUid", "vendedorNombre", "fecha", "subtotal", "descuento", "total", "estado", "observacion", "itemsCount", "createdAt", "updatedAt"]
+    },
+    "OrderItemDoc": {
+      "title": "OrderItemDoc",
+      "description": "Línea de detalle perteneciente a un pedido.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "productoId": { "type": "number" },
+        "codigoProducto": { "type": "string", "minLength": 2, "maxLength": 32 },
+        "nombreProducto": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "cantidadKg": { "type": "number" },
+        "precioKg": { "type": "number" },
+        "subtotal": { "type": "number" },
+        "vendedorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "productoId", "codigoProducto", "nombreProducto", "cantidadKg", "precioKg", "subtotal", "vendedorUid", "createdAt"]
+    },
+    "SaleDoc": {
+      "title": "SaleDoc",
+      "description": "Comprobante de venta único por pedido confirmado.",
+      "type": "object",
+      "properties": {
+        "numId": { "type": "number" },
+        "numeroVenta": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "pedidoId": { "type": "number" },
+        "numeroPedido": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "clienteId": { "type": "number" },
+        "clienteNombre": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "clienteRuc": { "type": "string", "maxLength": 15 },
+        "vendedorId": { "type": "number" },
+        "vendedorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "vendedorNombre": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "fecha": { "type": "string", "maxLength": 20 },
+        "subtotal": { "type": "number" },
+        "descuento": { "type": "number" },
+        "total": { "type": "number" },
+        "productosResumen": { "type": "string", "maxLength": 500 },
+        "itemsCount": { "type": "number" },
+        "estado": { "type": "string", "enum": ["Registrada", "Anulada"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numId", "numeroVenta", "pedidoId", "numeroPedido", "clienteId", "clienteNombre", "vendedorId", "vendedorUid", "vendedorNombre", "fecha", "subtotal", "descuento", "total", "estado", "createdAt", "updatedAt"]
+    },
+    "DispatchDoc": {
+      "title": "DispatchDoc",
+      "description": "Despacho logístico asignado a un pedido en Lima Metropolitana.",
+      "type": "object",
+      "properties": {
+        "numId": { "type": "number" },
+        "pedidoId": { "type": "number" },
+        "numeroPedido": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "clienteNombre": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "clienteDireccion": { "type": "string", "minLength": 2, "maxLength": 240 },
+        "estadoLogistico": { "type": "string", "enum": ["Pendiente", "Confirmado", "En preparación", "Despachado", "Entregado", "Cancelado"] },
+        "responsableId": { "type": "number" },
+        "responsableNombre": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "vehiculo": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "zonaLima": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "fechaProgramada": { "type": "string", "maxLength": 20 },
+        "fechaSalida": { "type": "string", "maxLength": 32 },
+        "fechaEntrega": { "type": "string", "maxLength": 32 },
+        "observaciones": { "type": "string", "maxLength": 500 },
+        "totalPedido": { "type": "number" },
+        "vendedorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numId", "pedidoId", "numeroPedido", "clienteNombre", "clienteDireccion", "estadoLogistico", "responsableNombre", "vehiculo", "zonaLima", "fechaProgramada", "observaciones", "totalPedido", "vendedorUid", "createdAt", "updatedAt"]
+    },
+    "DispatchEventDoc": {
+      "title": "DispatchEventDoc",
+      "description": "Evento individual en la línea de tiempo de despacho.",
+      "type": "object",
+      "properties": {
+        "dispatchId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "estado": { "type": "string", "enum": ["Pendiente", "Confirmado", "En preparación", "Despachado", "Entregado", "Cancelado"] },
+        "fecha": { "type": "string", "maxLength": 32 },
+        "responsable": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "nota": { "type": "string", "maxLength": 300 },
+        "vendedorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["dispatchId", "estado", "fecha", "responsable", "nota", "vendedorUid", "createdAt"]
+    },
+    "CompanySettingsDoc": {
+      "title": "CompanySettingsDoc",
+      "description": "Parámetros generales de la distribuidora Andes Fresh S.A.C.",
+      "type": "object",
+      "properties": {
+        "razonSocial": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "nombreComercial": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "ciudad": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "umbralStockCriticoKg": { "type": "number" },
+        "pedidoMinimoSoles": { "type": "number" },
+        "porcentajeDescuento": { "type": "number" },
+        "montoMinimoDescuentoSoles": { "type": "number" },
+        "moneda": { "type": "string", "minLength": 1, "maxLength": 12 },
+        "unidadBase": { "type": "string", "minLength": 1, "maxLength": 16 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["razonSocial", "nombreComercial", "ciudad", "umbralStockCriticoKg", "pedidoMinimoSoles", "porcentajeDescuento", "montoMinimoDescuentoSoles", "moneda", "unidadBase", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/test/{docId}": {
+      "schema": { "$ref": "#/entities/TestConnection" },
+      "description": "Verificación de conexión inicial con Firestore."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Cuentas operativas y roles RBAC del sistema."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivatePii" },
+      "description": "Datos personales de contacto aislados por propietario y administrador."
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/CategoryDoc" },
+      "description": "Catálogo de categorías de productos frescos."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/ProductDoc" },
+      "description": "Catálogo maestro de frutas, verduras, tubérculos y hortalizas."
+    },
+    "/inventory_movements/{movementId}": {
+      "schema": { "$ref": "#/entities/InventoryMovementDoc" },
+      "description": "Trazabilidad de movimientos de stock por kilogramo."
+    },
+    "/clients/{clientId}": {
+      "schema": { "$ref": "#/entities/ClientDoc" },
+      "description": "Cartera de clientes B2B en Lima Metropolitana."
+    },
+    "/employees/{employeeId}": {
+      "schema": { "$ref": "#/entities/EmployeeDoc" },
+      "description": "Directorio de empleados y conductores."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/OrderDoc" },
+      "description": "Pedidos comerciales registrados."
+    },
+    "/orders/{orderId}/items/{itemId}": {
+      "schema": { "$ref": "#/entities/OrderItemDoc" },
+      "description": "Líneas de detalle de cada pedido."
+    },
+    "/sales/{saleId}": {
+      "schema": { "$ref": "#/entities/SaleDoc" },
+      "description": "Registro único de ventas emitidas por pedido."
+    },
+    "/dispatches/{dispatchId}": {
+      "schema": { "$ref": "#/entities/DispatchDoc" },
+      "description": "Despachos logísticos y estado de entrega."
+    },
+    "/dispatches/{dispatchId}/events/{eventId}": {
+      "schema": { "$ref": "#/entities/DispatchEventDoc" },
+      "description": "Historial de eventos logísticos por despacho."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/CompanySettingsDoc" },
+      "description": "Configuración corporativa y reglas comerciales."
+    }
+  }
+}

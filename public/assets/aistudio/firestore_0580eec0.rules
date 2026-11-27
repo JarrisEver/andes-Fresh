@@ -1,0 +1,660 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Red de seguridad global (Default-Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Primitivas globales endurecidas
+    // -------------------------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'jarisevermvargas@gmail.com';
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    // Uso exclusivo en get/create/update/delete (NUNCA dentro de allow list)
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.rol == 'ADMIN' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.activo == true
+      );
+    }
+
+    function isActiveStaff() {
+      return isAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.activo == true &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.rol in ['ADMIN', 'VENDEDOR']
+      );
+    }
+
+    function isNonEmptyStr(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isBoundedStr(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    // -------------------------------------------------------------------------
+    // Validadores por entidad (Anti-Update-Gap / Strict Keys)
+    // -------------------------------------------------------------------------
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['uid', 'username', 'nombreCompleto', 'rol', 'activo', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'username', 'nombreCompleto', 'rol', 'empleadoId', 'activo', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && isNonEmptyStr(data.username, 2, 64)
+        && isNonEmptyStr(data.nombreCompleto, 2, 120)
+        && data.rol in ['ADMIN', 'VENDEDOR']
+        && (!('empleadoId' in data) || data.empleadoId is number || data.empleadoId == null)
+        && data.activo is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivatePii(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && isNonEmptyStr(data.email, 3, 160)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['numId', 'codigo', 'nombre', 'descripcion', 'estado', 'createdByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['numId', 'codigo', 'nombre', 'descripcion', 'estado', 'createdByUid', 'createdAt', 'updatedAt'])
+        && data.numId is number && data.numId > 0
+        && isNonEmptyStr(data.codigo, 2, 32)
+        && isNonEmptyStr(data.nombre, 2, 80)
+        && isBoundedStr(data.descripcion, 300)
+        && data.estado in ['Activo', 'Inactivo']
+        && isValidId(data.createdByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll([
+          'numId', 'codigo', 'nombre', 'descripcion', 'categoriaId', 'categoriaNombre',
+          'precioKg', 'stockKg', 'unidad', 'origen', 'estado', 'imagenUrl',
+          'fechaRegistro', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'numId', 'codigo', 'nombre', 'descripcion', 'categoriaId', 'categoriaNombre',
+          'precioKg', 'stockKg', 'unidad', 'origen', 'estado', 'imagenUrl',
+          'fechaRegistro', 'ultimoMovimiento', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.numId is number && data.numId > 0
+        && isNonEmptyStr(data.codigo, 2, 32)
+        && isNonEmptyStr(data.nombre, 2, 120)
+        && isBoundedStr(data.descripcion, 400)
+        && data.categoriaId is number && data.categoriaId > 0
+        && isNonEmptyStr(data.categoriaNombre, 2, 80)
+        && data.precioKg is number && data.precioKg > 0
+        && data.stockKg is number && data.stockKg >= 0
+        && isNonEmptyStr(data.unidad, 1, 16)
+        && data.origen in ['Costa', 'Sierra', 'Selva']
+        && data.estado in ['Activo', 'Inactivo']
+        && isBoundedStr(data.imagenUrl, 500)
+        && isNonEmptyStr(data.fechaRegistro, 8, 20)
+        && (!('ultimoMovimiento' in data) || data.ultimoMovimiento == null || isBoundedStr(data.ultimoMovimiento, 32))
+        && isValidId(data.createdByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInventoryMovement(data) {
+      return data.keys().hasAll([
+          'numId', 'productoId', 'productoCodigo', 'productoNombre', 'tipo',
+          'cantidadKg', 'stockAnterior', 'stockNuevo', 'motivo', 'referencia',
+          'usuarioUid', 'usuarioNombre', 'fecha', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'numId', 'productoId', 'productoCodigo', 'productoNombre', 'tipo',
+          'cantidadKg', 'stockAnterior', 'stockNuevo', 'motivo', 'referencia',
+          'usuarioUid', 'usuarioNombre', 'fecha', 'createdAt'
+        ])
+        && data.numId is number && data.numId > 0
+        && data.productoId is number && data.productoId > 0
+        && isNonEmptyStr(data.productoCodigo, 2, 32)
+        && isNonEmptyStr(data.productoNombre, 2, 120)
+        && data.tipo in ['ENTRADA', 'SALIDA', 'AJUSTE']
+        && data.cantidadKg is number && data.cantidadKg > 0
+        && data.stockAnterior is number && data.stockAnterior >= 0
+        && data.stockNuevo is number && data.stockNuevo >= 0
+        && isNonEmptyStr(data.motivo, 2, 240)
+        && isBoundedStr(data.referencia, 80)
+        && isValidId(data.usuarioUid)
+        && isNonEmptyStr(data.usuarioNombre, 2, 120)
+        && isNonEmptyStr(data.fecha, 8, 32)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidClient(data) {
+      return data.keys().hasAll([
+          'numId', 'ruc', 'razonSocial', 'nombreComercial', 'tipo',
+          'direccion', 'telefono', 'correo', 'estado', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'numId', 'ruc', 'razonSocial', 'nombreComercial', 'tipo',
+          'direccion', 'telefono', 'correo', 'estado', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.numId is number && data.numId > 0
+        && isNonEmptyStr(data.ruc, 8, 15)
+        && isNonEmptyStr(data.razonSocial, 2, 160)
+        && isBoundedStr(data.nombreComercial, 160)
+        && data.tipo in ['Bodegas', 'Restaurantes', 'Hoteles', 'Minimarkets']
+        && isNonEmptyStr(data.direccion, 3, 240)
+        && isBoundedStr(data.telefono, 40)
+        && isBoundedStr(data.correo, 160)
+        && data.estado in ['Activo', 'Inactivo']
+        && isValidId(data.createdByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidEmployee(data) {
+      return data.keys().hasAll([
+          'numId', 'dni', 'nombres', 'apellidos', 'cargo',
+          'telefono', 'correo', 'usuario', 'rol', 'estado', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'numId', 'dni', 'nombres', 'apellidos', 'cargo',
+          'telefono', 'correo', 'usuario', 'rol', 'estado', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.numId is number && data.numId > 0
+        && isNonEmptyStr(data.dni, 8, 12)
+        && isNonEmptyStr(data.nombres, 2, 80)
+        && isNonEmptyStr(data.apellidos, 2, 80)
+        && isNonEmptyStr(data.cargo, 2, 100)
+        && isBoundedStr(data.telefono, 40)
+        && isBoundedStr(data.correo, 160)
+        && isNonEmptyStr(data.usuario, 2, 64)
+        && data.rol in ['ADMIN', 'VENDEDOR']
+        && data.estado in ['Activo', 'Inactivo']
+        && isValidId(data.createdByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll([
+          'numId', 'numeroPedido', 'clienteId', 'clienteRuc', 'clienteNombre', 'clienteTipo',
+          'vendedorId', 'vendedorUid', 'vendedorNombre', 'fecha',
+          'subtotal', 'descuento', 'total', 'estado', 'observacion', 'itemsCount',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'numId', 'numeroPedido', 'clienteId', 'clienteRuc', 'clienteNombre', 'clienteTipo',
+          'vendedorId', 'vendedorUid', 'vendedorNombre', 'fecha',
+          'subtotal', 'descuento', 'total', 'estado', 'observacion', 'itemsCount',
+          'createdAt', 'updatedAt'
+        ])
+        && data.numId is number && data.numId > 0
+        && isNonEmptyStr(data.numeroPedido, 4, 32)
+        && data.clienteId is number && data.clienteId > 0
+        && isNonEmptyStr(data.clienteRuc, 8, 15)
+        && isNonEmptyStr(data.clienteNombre, 2, 160)
+        && isNonEmptyStr(data.clienteTipo, 2, 40)
+        && data.vendedorId is number && data.vendedorId > 0
+        && isValidId(data.vendedorUid)
+        && isNonEmptyStr(data.vendedorNombre, 2, 120)
+        && isNonEmptyStr(data.fecha, 8, 20)
+        && data.subtotal is number && data.subtotal >= 150
+        && data.descuento is number && data.descuento >= 0
+        && data.total is number && data.total > 0 && data.total <= data.subtotal
+        && data.estado in ['Pendiente', 'Confirmado', 'En preparación', 'Despachado', 'Entregado', 'Cancelado']
+        && isBoundedStr(data.observacion, 500)
+        && data.itemsCount is number && data.itemsCount >= 1 && data.itemsCount <= 50
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOrderItem(data) {
+      return data.keys().hasAll([
+          'orderId', 'productoId', 'codigoProducto', 'nombreProducto',
+          'cantidadKg', 'precioKg', 'subtotal', 'vendedorUid', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'orderId', 'productoId', 'codigoProducto', 'nombreProducto',
+          'cantidadKg', 'precioKg', 'subtotal', 'vendedorUid', 'createdAt'
+        ])
+        && isValidId(data.orderId)
+        && data.productoId is number && data.productoId > 0
+        && isNonEmptyStr(data.codigoProducto, 2, 32)
+        && isNonEmptyStr(data.nombreProducto, 2, 120)
+        && data.cantidadKg is number && data.cantidadKg > 0
+        && data.precioKg is number && data.precioKg > 0
+        && data.subtotal is number && data.subtotal > 0
+        && isValidId(data.vendedorUid)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSale(data) {
+      return data.keys().hasAll([
+          'numId', 'numeroVenta', 'pedidoId', 'numeroPedido', 'clienteId', 'clienteNombre',
+          'vendedorId', 'vendedorUid', 'vendedorNombre', 'fecha',
+          'subtotal', 'descuento', 'total', 'estado', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'numId', 'numeroVenta', 'pedidoId', 'numeroPedido', 'clienteId', 'clienteNombre',
+          'clienteRuc', 'vendedorId', 'vendedorUid', 'vendedorNombre', 'fecha',
+          'subtotal', 'descuento', 'total', 'productosResumen', 'itemsCount', 'estado', 'createdAt', 'updatedAt'
+        ])
+        && data.numId is number && data.numId > 0
+        && isNonEmptyStr(data.numeroVenta, 4, 32)
+        && data.pedidoId is number && data.pedidoId > 0
+        && isNonEmptyStr(data.numeroPedido, 4, 32)
+        && data.clienteId is number && data.clienteId > 0
+        && isNonEmptyStr(data.clienteNombre, 2, 160)
+        && (!('clienteRuc' in data) || isBoundedStr(data.clienteRuc, 15))
+        && data.vendedorId is number && data.vendedorId > 0
+        && isValidId(data.vendedorUid)
+        && isNonEmptyStr(data.vendedorNombre, 2, 120)
+        && isNonEmptyStr(data.fecha, 8, 20)
+        && data.subtotal is number && data.subtotal >= 150
+        && data.descuento is number && data.descuento >= 0
+        && data.total is number && data.total > 0
+        && (!('productosResumen' in data) || isBoundedStr(data.productosResumen, 500))
+        && (!('itemsCount' in data) || data.itemsCount is number)
+        && data.estado in ['Registrada', 'Anulada']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDispatch(data) {
+      return data.keys().hasAll([
+          'numId', 'pedidoId', 'numeroPedido', 'clienteNombre', 'clienteDireccion',
+          'estadoLogistico', 'responsableNombre', 'vehiculo', 'zonaLima',
+          'fechaProgramada', 'observaciones', 'totalPedido', 'vendedorUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'numId', 'pedidoId', 'numeroPedido', 'clienteNombre', 'clienteDireccion',
+          'estadoLogistico', 'responsableId', 'responsableNombre', 'vehiculo', 'zonaLima',
+          'fechaProgramada', 'fechaSalida', 'fechaEntrega', 'observaciones', 'totalPedido',
+          'vendedorUid', 'createdAt', 'updatedAt'
+        ])
+        && data.numId is number && data.numId > 0
+        && data.pedidoId is number && data.pedidoId > 0
+        && isNonEmptyStr(data.numeroPedido, 4, 32)
+        && isNonEmptyStr(data.clienteNombre, 2, 160)
+        && isNonEmptyStr(data.clienteDireccion, 2, 240)
+        && data.estadoLogistico in ['Pendiente', 'Confirmado', 'En preparación', 'Despachado', 'Entregado', 'Cancelado']
+        && (!('responsableId' in data) || data.responsableId == null || data.responsableId is number)
+        && isNonEmptyStr(data.responsableNombre, 2, 120)
+        && isNonEmptyStr(data.vehiculo, 2, 120)
+        && isNonEmptyStr(data.zonaLima, 2, 80)
+        && isNonEmptyStr(data.fechaProgramada, 8, 20)
+        && (!('fechaSalida' in data) || data.fechaSalida == null || isBoundedStr(data.fechaSalida, 32))
+        && (!('fechaEntrega' in data) || data.fechaEntrega == null || isBoundedStr(data.fechaEntrega, 32))
+        && isBoundedStr(data.observaciones, 500)
+        && data.totalPedido is number && data.totalPedido >= 0
+        && isValidId(data.vendedorUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDispatchEvent(data) {
+      return data.keys().hasAll(['dispatchId', 'estado', 'fecha', 'responsable', 'nota', 'vendedorUid', 'createdAt'])
+        && data.keys().hasOnly(['dispatchId', 'estado', 'fecha', 'responsable', 'nota', 'vendedorUid', 'createdAt'])
+        && isValidId(data.dispatchId)
+        && data.estado in ['Pendiente', 'Confirmado', 'En preparación', 'Despachado', 'Entregado', 'Cancelado']
+        && isNonEmptyStr(data.fecha, 8, 32)
+        && isNonEmptyStr(data.responsable, 2, 120)
+        && isBoundedStr(data.nota, 300)
+        && isValidId(data.vendedorUid)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidCompanySettings(data) {
+      return data.keys().hasAll([
+          'razonSocial', 'nombreComercial', 'ciudad', 'umbralStockCriticoKg',
+          'pedidoMinimoSoles', 'porcentajeDescuento', 'montoMinimoDescuentoSoles',
+          'moneda', 'unidadBase', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'razonSocial', 'nombreComercial', 'ciudad', 'umbralStockCriticoKg',
+          'pedidoMinimoSoles', 'porcentajeDescuento', 'montoMinimoDescuentoSoles',
+          'moneda', 'unidadBase', 'updatedAt'
+        ])
+        && isNonEmptyStr(data.razonSocial, 2, 160)
+        && isNonEmptyStr(data.nombreComercial, 2, 160)
+        && isNonEmptyStr(data.ciudad, 2, 120)
+        && data.umbralStockCriticoKg is number && data.umbralStockCriticoKg >= 0
+        && data.pedidoMinimoSoles is number && data.pedidoMinimoSoles >= 0
+        && data.porcentajeDescuento is number && data.porcentajeDescuento >= 0 && data.porcentajeDescuento <= 100
+        && data.montoMinimoDescuentoSoles is number && data.montoMinimoDescuentoSoles >= 0
+        && isNonEmptyStr(data.moneda, 1, 12)
+        && isNonEmptyStr(data.unidadBase, 1, 16)
+        && data.updatedAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Colección de verificación de conexión inicial
+    // -------------------------------------------------------------------------
+    match /test/{docId} {
+      allow get: if isVerifiedUser() && isValidId(docId) && docId == 'connection';
+    }
+
+    // -------------------------------------------------------------------------
+    // Usuarios (PII aislado en subcolección private)
+    // -------------------------------------------------------------------------
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.uid == request.auth.uid);
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserAccount(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            userId == request.auth.uid &&
+            incoming().uid == request.auth.uid &&
+            incoming().rol == 'VENDEDOR' &&
+            incoming().activo == true
+          )
+        );
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserAccount(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().uid == existing().uid
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'nombreCompleto', 'rol', 'empleadoId', 'activo', 'updatedAt'])) ||
+          (isOwner(userId) && incoming().rol == existing().rol && incoming().activo == existing().activo && incoming().diff(existing()).affectedKeys().hasOnly(['nombreCompleto', 'updatedAt']))
+        );
+      allow delete: if false;
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.uid == request.auth.uid);
+        allow create: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidUserPrivatePii(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && ((userId == request.auth.uid && incoming().uid == request.auth.uid) || isAdmin());
+        allow update: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidUserPrivatePii(incoming())
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().uid == existing().uid
+          && (isOwner(userId) || isAdmin())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+        allow delete: if false;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Catálogo maestro: Categorías y Productos
+    // -------------------------------------------------------------------------
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId) && isActiveStaff();
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.estado in ['Activo', 'Inactivo']);
+      allow create: if isAdmin()
+        && isValidId(categoryId)
+        && isValidCategory(incoming())
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(categoryId)
+        && isValidCategory(incoming())
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['codigo', 'nombre', 'descripcion', 'estado', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /products/{productId} {
+      allow get: if isValidId(productId) && isActiveStaff();
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.estado in ['Activo', 'Inactivo']);
+      allow create: if isAdmin()
+        && isValidId(productId)
+        && isValidProduct(incoming())
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(productId)
+        && isValidProduct(incoming())
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'codigo', 'nombre', 'descripcion', 'categoriaId', 'categoriaNombre',
+            'precioKg', 'stockKg', 'unidad', 'origen', 'estado', 'imagenUrl',
+            'ultimoMovimiento', 'updatedAt'
+          ])) ||
+          (isActiveStaff() && incoming().stockKg <= existing().stockKg && incoming().diff(existing()).affectedKeys().hasOnly(['stockKg', 'ultimoMovimiento', 'updatedAt']))
+        );
+      allow delete: if isAdmin() && isValidId(productId);
+    }
+
+    // -------------------------------------------------------------------------
+    // Movimientos de Inventario (histórico inmutable)
+    // -------------------------------------------------------------------------
+    match /inventory_movements/{movementId} {
+      allow get: if isValidId(movementId) && isActiveStaff();
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.usuarioUid == request.auth.uid);
+      allow create: if isVerifiedUser()
+        && isValidId(movementId)
+        && isValidInventoryMovement(incoming())
+        && incoming().usuarioUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && (
+          isAdmin() || (isActiveStaff() && incoming().tipo == 'SALIDA')
+        );
+      allow update, delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Clientes CRM y Empleados (PII restringido por propietario o Admin)
+    // -------------------------------------------------------------------------
+    match /clients/{clientId} {
+      allow get: if isValidId(clientId) && (isAdmin() || (isActiveStaff() && existing().createdByUid == request.auth.uid));
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.createdByUid == request.auth.uid);
+      allow create: if isActiveStaff()
+        && isValidId(clientId)
+        && isValidClient(incoming())
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isActiveStaff()
+        && isValidId(clientId)
+        && isValidClient(incoming())
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            existing().createdByUid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['razonSocial', 'nombreComercial', 'tipo', 'direccion', 'telefono', 'correo', 'estado', 'updatedAt'])
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /employees/{employeeId} {
+      allow get: if isValidId(employeeId) && isAdmin();
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.createdByUid == request.auth.uid);
+      allow create: if isAdmin()
+        && isValidId(employeeId)
+        && isValidEmployee(incoming())
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(employeeId)
+        && isValidEmployee(incoming())
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['dni', 'nombres', 'apellidos', 'cargo', 'telefono', 'correo', 'usuario', 'rol', 'estado', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Pedidos, Detalles (subcolección), Ventas y Despachos
+    // -------------------------------------------------------------------------
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && (isAdmin() || (isActiveStaff() && existing().vendedorUid == request.auth.uid));
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.vendedorUid == request.auth.uid);
+      allow create: if isActiveStaff()
+        && isValidId(orderId)
+        && isValidOrder(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().estado in ['Pendiente', 'Confirmado']
+        && (isAdmin() || incoming().vendedorUid == request.auth.uid);
+      allow update: if isVerifiedUser()
+        && isValidId(orderId)
+        && isValidOrder(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().numId == existing().numId
+        && incoming().vendedorUid == existing().vendedorUid
+        && (
+          isAdmin() || (
+            isActiveStaff()
+            && existing().vendedorUid == request.auth.uid
+            && !(existing().estado in ['Entregado', 'Cancelado'])
+            && incoming().diff(existing()).affectedKeys().hasOnly(['estado', 'updatedAt'])
+          )
+        );
+      allow delete: if false;
+
+      match /items/{itemId} {
+        allow get: if isValidId(orderId) && isValidId(itemId) && (
+          isAdmin() || (
+            isActiveStaff() &&
+            get(/databases/$(database)/documents/orders/$(orderId)).data.vendedorUid == request.auth.uid
+          )
+        );
+        allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.vendedorUid == request.auth.uid);
+        allow create: if isActiveStaff()
+          && isValidId(orderId)
+          && isValidId(itemId)
+          && isValidOrderItem(incoming())
+          && incoming().orderId == orderId
+          && incoming().createdAt == request.time
+          && (exists(/databases/$(database)/documents/orders/$(orderId)) || existsAfter(/databases/$(database)/documents/orders/$(orderId)))
+          && (isAdmin() || incoming().vendedorUid == request.auth.uid);
+        allow update, delete: if false;
+      }
+    }
+
+    match /sales/{saleId} {
+      allow get: if isValidId(saleId) && (isAdmin() || (isActiveStaff() && existing().vendedorUid == request.auth.uid));
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.vendedorUid == request.auth.uid);
+      allow create: if isActiveStaff()
+        && isValidId(saleId)
+        && isValidSale(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().estado == 'Registrada'
+        && (isAdmin() || incoming().vendedorUid == request.auth.uid);
+      allow update: if isAdmin()
+        && isValidId(saleId)
+        && isValidSale(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['estado', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /dispatches/{dispatchId} {
+      allow get: if isValidId(dispatchId) && (isAdmin() || (isActiveStaff() && existing().vendedorUid == request.auth.uid));
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.vendedorUid == request.auth.uid);
+      allow create: if isActiveStaff()
+        && isValidId(dispatchId)
+        && isValidDispatch(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (isAdmin() || incoming().vendedorUid == request.auth.uid);
+      allow update: if isVerifiedUser()
+        && isValidId(dispatchId)
+        && isValidDispatch(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().vendedorUid == existing().vendedorUid
+        && (
+          isAdmin() || (
+            isActiveStaff()
+            && existing().vendedorUid == request.auth.uid
+            && !(existing().estadoLogistico in ['Entregado', 'Cancelado'])
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'estadoLogistico', 'responsableId', 'responsableNombre', 'vehiculo',
+              'zonaLima', 'fechaSalida', 'fechaEntrega', 'observaciones', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if false;
+
+      match /events/{eventId} {
+        allow get: if isValidId(dispatchId) && isValidId(eventId) && (
+          isAdmin() || (
+            isActiveStaff() &&
+            get(/databases/$(database)/documents/dispatches/$(dispatchId)).data.vendedorUid == request.auth.uid
+          )
+        );
+        allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.vendedorUid == request.auth.uid);
+        allow create: if isActiveStaff()
+          && isValidId(dispatchId)
+          && isValidId(eventId)
+          && isValidDispatchEvent(incoming())
+          && incoming().dispatchId == dispatchId
+          && incoming().createdAt == request.time
+          && (exists(/databases/$(database)/documents/dispatches/$(dispatchId)) || existsAfter(/databases/$(database)/documents/dispatches/$(dispatchId)))
+          && (isAdmin() || incoming().vendedorUid == request.auth.uid);
+        allow update, delete: if false;
+      }
+    }
+
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && isActiveStaff();
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.moneda != '');
+      allow create, update: if isAdmin()
+        && isValidId(settingId)
+        && isValidCompanySettings(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+  }
+}
