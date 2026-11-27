@@ -2,5 +2,7 @@
   "name": "Andes Fresh ERP",
   "description": "Sistema Integral de Gestión Empresarial para Distribuidora Andes Fresh S.A.C. — distribución B2B de frutas, verduras y tubérculos en Lima, inventario, pedidos, ventas y logística.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
